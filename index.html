@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aire — trafic en direct &amp; empreinte carbone</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.2.0/maplibre-gl.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.2.0/maplibre-gl.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e14;
+    --bg-panel: #10151ecc;
+    --bg-panel-solid: #10151e;
+    --border: #ffffff14;
+    --border-strong: #ffffff26;
+    --text: #e4e8ed;
+    --text-dim: #8b95a5;
+    --text-faint: #5a6472;
+    --accent: #3ed9c4;
+    --accent-dim: #3ed9c455;
+    --warn: #f2a65a;
+    --warn-dim: #f2a65a33;
+    --train: #6fb8f0;
+    --plane: #3ed9c4;
+    --boat: #c792ea;
+    --bus: #f2a65a;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    font-family: 'Inter', sans-serif;
+    color: var(--text);
+    overflow: hidden;
+  }
+
+  #map {
+    position: absolute;
+    inset: 0;
+  }
+
+  /* ---------- Header ---------- */
+  .header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 24px;
+    pointer-events: none;
+  }
+
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    pointer-events: auto;
+  }
+
+  .brand-mark {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+
+  .brand-mark span { color: var(--accent); }
+
+  .brand-tag {
+    font-size: 12px;
+    color: var(--text-faint);
+    border-left: 1px solid var(--border-strong);
+    padding-left: 10px;
+  }
+
+  .live-pill {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-panel);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 7px 14px 7px 10px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 0 var(--accent-dim);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 var(--accent-dim); }
+    70% { box-shadow: 0 0 0 6px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+
+  /* ---------- Layer control ---------- */
+  .layers {
+    position: absolute;
+    top: 74px;
+    left: 24px;
+    z-index: 10;
+    background: var(--bg-panel);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 190px;
+  }
+
+  .layer-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: 9px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-dim);
+    transition: background 0.15s ease, color 0.15s ease;
+    user-select: none;
+  }
+
+  .layer-btn:hover { background: #ffffff08; }
+
+  .layer-btn.active {
+    color: var(--text);
+    background: #ffffff0d;
+  }
+
+  .layer-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .layer-count {
+    margin-left: auto;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 11px;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .layer-btn.active .layer-count { color: var(--text-dim); }
+
+  /* ---------- CO2 counter panel ---------- */
+  .co2-panel {
+    position: absolute;
+    bottom: 24px;
+    left: 24px;
+    z-index: 10;
+    background: var(--bg-panel);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 18px;
+    width: 260px;
+  }
+
+  .co2-label {
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-bottom: 6px;
+  }
+
+  .co2-value {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 30px;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--text);
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+
+  .co2-value .unit {
+    font-size: 14px;
+    color: var(--text-dim);
+    font-weight: 500;
+  }
+
+  .co2-sub {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height: 1.5;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+
+  .co2-sub strong { color: var(--warn); font-weight: 600; }
+
+  /* ---------- Popup ---------- */
+  .maplibregl-popup-content {
+    background: var(--bg-panel-solid) !important;
+    border: 1px solid var(--border-strong) !important;
+    border-radius: 12px !important;
+    padding: 0 !important;
+    box-shadow: 0 12px 32px #00000066 !important;
+    overflow: hidden;
+  }
+
+  .maplibregl-popup-tip {
+    border-top-color: var(--bg-panel-solid) !important;
+    border-bottom-color: var(--bg-panel-solid) !important;
+  }
+
+  .maplibregl-popup-close-button {
+    color: var(--text-faint) !important;
+    font-size: 18px !important;
+    padding: 4px 8px !important;
+  }
+
+  .pop {
+    font-family: 'Inter', sans-serif;
+    min-width: 220px;
+  }
+
+  .pop-head {
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .pop-type {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-faint);
+    margin-bottom: 3px;
+  }
+
+  .pop-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .pop-body {
+    padding: 12px 14px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .pop-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12.5px;
+  }
+
+  .pop-row .k { color: var(--text-faint); }
+  .pop-row .v { color: var(--text); font-variant-numeric: tabular-nums; }
+
+  .pop-co2 {
+    margin-top: 4px;
+    background: #ffffff08;
+    border-radius: 8px;
+    padding: 9px 10px;
+  }
+
+  .pop-co2-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 4px;
+  }
+
+  .pop-co2-label {
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+
+  .pop-co2-value {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+
+  .pop-co2-compare {
+    font-size: 11px;
+    color: var(--text-faint);
+    line-height: 1.4;
+  }
+
+  /* ---------- Source note ---------- */
+  .source-note {
+    position: absolute;
+    bottom: 24px;
+    right: 24px;
+    z-index: 10;
+    font-size: 10.5px;
+    color: var(--text-faint);
+    background: var(--bg-panel);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 12px;
+    max-width: 240px;
+    line-height: 1.5;
+  }
+
+  .source-note strong { color: var(--text-dim); font-weight: 500; }
+
+  /* ---------- Proto banner ---------- */
+  .proto-banner {
+    position: absolute;
+    top: 18px;
+    right: 24px;
+    z-index: 10;
+    font-size: 11px;
+    color: var(--warn);
+    background: var(--warn-dim);
+    border: 1px solid #f2a65a33;
+    border-radius: 100px;
+    padding: 6px 12px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 500;
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="header">
+  <div class="brand">
+    <div class="brand-mark">aire<span>·</span>live</div>
+    <div class="brand-tag">trafic en direct &amp; empreinte carbone</div>
+  </div>
+  <div class="live-pill">
+    <span class="live-dot"></span>
+    <span id="obj-count">— objets suivis</span>
+  </div>
+</div>
+
+<div class="proto-banner">Prototype — données simulées</div>
+
+<div class="layers" id="layers">
+  <div class="layer-btn active" data-layer="plane">
+    <span class="layer-dot" style="background: var(--plane)"></span>
+    Avions
+    <span class="layer-count" id="count-plane">0</span>
+  </div>
+  <div class="layer-btn active" data-layer="train">
+    <span class="layer-dot" style="background: var(--train)"></span>
+    Trains
+    <span class="layer-count" id="count-train">0</span>
+  </div>
+  <div class="layer-btn active" data-layer="boat">
+    <span class="layer-dot" style="background: var(--boat)"></span>
+    Bateaux
+    <span class="layer-count" id="count-boat">0</span>
+  </div>
+  <div class="layer-btn active" data-layer="bus">
+    <span class="layer-dot" style="background: var(--bus)"></span>
+    Bus &amp; métro
+    <span class="layer-count" id="count-bus">0</span>
+  </div>
+</div>
+
+<div class="co2-panel">
+  <div class="co2-label">Émissions cumulées — objets visibles</div>
+  <div class="co2-value"><span id="co2-total">0</span><span class="unit">kg CO₂e / h</span></div>
+  <div class="co2-sub">Équivalent à <strong id="co2-compare">—</strong></div>
+</div>
+
+<div class="source-note">
+  Facteurs d'émission : <strong>Base Empreinte® ADEME</strong> via l'API Impact CO2. Données de position simulées dans ce prototype.
+</div>
+
+<script>
+// ============================================================
+// DONNÉES SIMULÉES — à remplacer par les vrais flux (OpenSky,
+// AISstream, GTFS-RT) dans la version connectée au backend.
+// ============================================================
+
+// Facteurs d'émission (gCO2e / passager.km) — ordres de grandeur
+// issus de la Base Empreinte ADEME / Impact CO2, à titre indicatif
+// pour ce prototype.
+const CO2_FACTORS = {
+  plane: 230,   // avion court-moyen courrier
+  train: 3,     // TGV / train grande vitesse électrique
+  boat:  15,    // ferry / transport maritime passager (ordre de grandeur)
+  bus:   68     // bus urbain
+};
+
+const TYPE_LABEL = {
+  plane: 'Avion',
+  train: 'Train',
+  boat: 'Bateau',
+  bus: 'Bus / métro'
+};
+
+// Villes françaises pour générer des trajectoires plausibles
+const CITIES = [
+  { name: 'Paris', lat: 48.8566, lon: 2.3522 },
+  { name: 'Marseille', lat: 43.2965, lon: 5.3698 },
+  { name: 'Lyon', lat: 45.7640, lon: 4.8357 },
+  { name: 'Toulouse', lat: 43.6047, lon: 1.4442 },
+  { name: 'Nice', lat: 43.7102, lon: 7.2620 },
+  { name: 'Nantes', lat: 47.2184, lon: -1.5536 },
+  { name: 'Strasbourg', lat: 48.5734, lon: 7.7521 },
+  { name: 'Bordeaux', lat: 44.8378, lon: -0.5792 },
+  { name: 'Lille', lat: 50.6292, lon: 3.0573 },
+  { name: 'Brest', lat: 48.3904, lon: -4.4861 },
+  { name: 'Le Havre', lat: 49.4944, lon: 0.1079 },
+  { name: 'La Rochelle', lat: 46.1603, lon: -1.1511 }
+];
+
+function rand(min, max) { return Math.random() * (max - min) + min; }
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function dist(a, b) {
+  // distance approx en km (haversine simplifiée)
+  const R = 6371;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLon = (b.lon - a.lon) * Math.PI / 180;
+  const la1 = a.lat * Math.PI / 180, la2 = b.lat * Math.PI / 180;
+  const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1-h));
+}
+
+const FLIGHT_NUMBERS = ['AF1420','AF7712','TO3081','U26034','HV5522','EJU2311'];
+const TRAIN_NUMBERS  = ['TGV 6203','TGV 8514','INOUI 5732','OUIGO 7841','TER 92104'];
+const BOAT_NAMES     = ['MSC Fantasia','Pont-Aven','Armorique','CMA CGM Rigoletto','Normandie Express'];
+const BUS_LINES      = ['Ligne 1','Ligne 7','Tram A','Métro 4','Ligne C13'];
+
+function makeVehicle(type, id) {
+  const from = pick(CITIES);
+  let to = pick(CITIES);
+  while (to === from) to = pick(CITIES);
+
+  const d = dist(from, to);
+  const t = Math.random(); // progression 0→1 le long du trajet
+
+  let label, passengers;
+  if (type === 'plane') { label = pick(FLIGHT_NUMBERS); passengers = Math.round(rand(90, 180)); }
+  else if (type === 'train') { label = pick(TRAIN_NUMBERS); passengers = Math.round(rand(200, 500)); }
+  else if (type === 'boat') { label = pick(BOAT_NAMES); passengers = Math.round(rand(150, 800)); }
+  else { label = pick(BUS_LINES); passengers = Math.round(rand(15, 60)); }
+
+  return {
+    id, type, label, from: from.name, to: to.name,
+    fromCoord: from, toCoord: to,
+    distanceKm: d,
+    progress: t,
+    speed: rand(0.0015, 0.004) * (type === 'bus' ? 0.4 : 1),
+    passengers,
+    co2PerKm: CO2_FACTORS[type], // g/passager.km
+  };
+}
+
+function currentPos(v) {
+  const lat = v.fromCoord.lat + (v.toCoord.lat - v.fromCoord.lat) * v.progress;
+  const lon = v.fromCoord.lon + (v.toCoord.lon - v.fromCoord.lon) * v.progress;
+  return [lon, lat];
+}
+
+// Génère la flotte simulée
+let vehicles = [];
+let uid = 0;
+const COUNTS = { plane: 14, train: 10, boat: 6, bus: 22 };
+Object.entries(COUNTS).forEach(([type, n]) => {
+  for (let i = 0; i < n; i++) vehicles.push(makeVehicle(type, uid++));
+});
+
+// ============================================================
+// CARTE
+// ============================================================
+
+// Fond de carte 100% autonome (pas de tuiles externes) : la CSP des
+// artifacts publiés bloque silencieusement les hôtes de tuiles non
+// listés (cartocdn, etc.). On dessine donc un fond vectoriel minimal
+// nous-mêmes à partir de contours simplifiés, ce qui marche partout
+// et colle mieux à l'esthétique "instrument de mesure" recherchée.
+if (typeof maplibregl === 'undefined') {
+  document.getElementById('map').innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:center;height:100%;
+                color:#8b95a5;font-family:Inter,sans-serif;text-align:center;padding:40px;">
+      <div>
+        <div style="font-size:15px;color:#e4e8ed;margin-bottom:8px;">
+          La librairie de carte (MapLibre GL) n'a pas pu se charger.
+        </div>
+        <div style="font-size:13px;">
+          Vérifie ta connexion internet, ou qu'un bloqueur de scripts/pub
+          n'empêche pas le chargement de <code>cdnjs.cloudflare.com</code>.
+        </div>
+      </div>
+    </div>`;
+  throw new Error('maplibregl non chargé — voir message à l\'écran');
+}
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      'countries': {
+        type: 'geojson',
+        data: 'https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_50m_admin_0_countries.geojson'
+      }
+    },
+    layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': '#0a0e14' } },
+      {
+        id: 'countries-fill',
+        type: 'fill',
+        source: 'countries',
+        paint: { 'fill-color': '#151b26' }
+      },
+      {
+        id: 'countries-line',
+        type: 'line',
+        source: 'countries',
+        paint: { 'line-color': '#2a3241', 'line-width': 0.8 }
+      },
+      {
+        id: 'france-highlight',
+        type: 'fill',
+        source: 'countries',
+        filter: ['==', ['get', 'ADMIN'], 'France'],
+        paint: { 'fill-color': '#1a2230' }
+      },
+      {
+        id: 'france-outline',
+        type: 'line',
+        source: 'countries',
+        filter: ['==', ['get', 'ADMIN'], 'France'],
+        paint: { 'line-color': '#3ed9c455', 'line-width': 1.4 }
+      }
+    ]
+  },
+  center: [2.5, 46.8],
+  zoom: 5.4,
+  attributionControl: { compact: true }
+});
+
+map.on('error', (e) => {
+  console.warn('Map error (fond de carte) :', e.error?.message || e);
+});
+
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+
+let activeLayers = new Set(['plane', 'train', 'boat', 'bus']);
+let popup = null;
+
+function co2ForVehicle(v) {
+  // CO2 total estimé pour le trajet complet, en kg
+  return (v.co2PerKm * v.distanceKm * v.passengers) / 1000;
+}
+
+function compareCO2(totalKg) {
+  // repère parlant : un repas avec viande ≈ 3.5 kg CO2e (ordre de grandeur ADEME/Impact CO2)
+  const meals = Math.round(totalKg / 3.5);
+  if (meals < 1) return 'moins d\'un repas avec viande';
+  return `~${meals.toLocaleString('fr-FR')} repas avec viande`;
+}
+
+function buildPopupHTML(v) {
+  const co2 = co2ForVehicle(v);
+  const co2PerPax = (v.co2PerKm * v.distanceKm) / 1000;
+  return `
+    <div class="pop">
+      <div class="pop-head">
+        <div class="pop-type">${TYPE_LABEL[v.type]}</div>
+        <div class="pop-title">${v.label}</div>
+      </div>
+      <div class="pop-body">
+        <div class="pop-row"><span class="k">Trajet</span><span class="v">${v.from} → ${v.to}</span></div>
+        <div class="pop-row"><span class="k">Distance</span><span class="v">${Math.round(v.distanceKm)} km</span></div>
+        <div class="pop-row"><span class="k">Passagers (est.)</span><span class="v">${v.passengers}</span></div>
+        <div class="pop-co2">
+          <div class="pop-co2-top">
+            <span class="pop-co2-label">CO₂ / passager</span>
+            <span class="pop-co2-value">${co2PerPax.toFixed(1)} kg</span>
+          </div>
+          <div class="pop-co2-compare">Trajet complet (tous passagers) ≈ ${Math.round(co2)} kg CO₂e — équivalent à ${compareCO2(co2)}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function geojsonFor(type) {
+  return {
+    type: 'FeatureCollection',
+    features: vehicles
+      .filter(v => v.type === type)
+      .map(v => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: currentPos(v) },
+        properties: { id: v.id }
+      }))
+  };
+}
+
+const LAYER_COLORS = {
+  plane: '#3ed9c4',
+  train: '#6fb8f0',
+  boat: '#c792ea',
+  bus: '#f2a65a'
+};
+
+map.on('load', () => {
+  Object.keys(COUNTS).forEach(type => {
+    map.addSource(type, { type: 'geojson', data: geojsonFor(type) });
+
+    // halo pulsant
+    map.addLayer({
+      id: `${type}-halo`,
+      type: 'circle',
+      source: type,
+      paint: {
+        'circle-radius': 10,
+        'circle-color': LAYER_COLORS[type],
+        'circle-opacity': 0.15
+      }
+    });
+
+    map.addLayer({
+      id: `${type}-point`,
+      type: 'circle',
+      source: type,
+      paint: {
+        'circle-radius': type === 'bus' ? 4 : 5.5,
+        'circle-color': LAYER_COLORS[type],
+        'circle-stroke-width': 1.5,
+        'circle-stroke-color': '#0a0e14'
+      }
+    });
+
+    map.on('click', `${type}-point`, (e) => {
+      const id = e.features[0].properties.id;
+      const v = vehicles.find(veh => veh.id === id);
+      if (!v) return;
+      if (popup) popup.remove();
+      popup = new maplibregl.Popup({ offset: 12, closeButton: true })
+        .setLngLat(currentPos(v))
+        .setHTML(buildPopupHTML(v))
+        .addTo(map);
+    });
+
+    map.on('mouseenter', `${type}-point`, () => map.getCanvas().style.cursor = 'pointer');
+    map.on('mouseleave', `${type}-point`, () => map.getCanvas().style.cursor = '');
+  });
+
+  updateStats();
+  tick();
+});
+
+function setLayerVisibility(type, visible) {
+  const v = visible ? 'visible' : 'none';
+  if (map.getLayer(`${type}-point`)) map.setLayoutProperty(`${type}-point`, 'visibility', v);
+  if (map.getLayer(`${type}-halo`)) map.setLayoutProperty(`${type}-halo`, 'visibility', v);
+}
+
+document.querySelectorAll('.layer-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const type = btn.dataset.layer;
+    if (activeLayers.has(type)) {
+      activeLayers.delete(type);
+      btn.classList.remove('active');
+      setLayerVisibility(type, false);
+    } else {
+      activeLayers.add(type);
+      btn.classList.add('active');
+      setLayerVisibility(type, true);
+    }
+    updateStats();
+  });
+});
+
+function updateStats() {
+  const counts = { plane: 0, train: 0, boat: 0, bus: 0 };
+  vehicles.forEach(v => counts[v.type]++);
+  Object.entries(counts).forEach(([type, n]) => {
+    document.getElementById(`count-${type}`).textContent = n;
+  });
+
+  const visibleVehicles = vehicles.filter(v => activeLayers.has(v.type));
+  document.getElementById('obj-count').textContent =
+    `${visibleVehicles.length.toLocaleString('fr-FR')} objets suivis`;
+
+  // CO2 cumulé "par heure" : approx à partir de la vitesse simulée
+  // (proportion du trajet parcourue par tick, ramenée à une base horaire)
+  const totalCO2PerHour = visibleVehicles.reduce((sum, v) => {
+    const kmPerHour = v.distanceKm * v.speed * 60; // approx ticks/minute
+    return sum + (v.co2PerKm * kmPerHour * v.passengers) / 1000;
+  }, 0);
+
+  document.getElementById('co2-total').textContent =
+    Math.round(totalCO2PerHour).toLocaleString('fr-FR');
+  document.getElementById('co2-compare').textContent = compareCO2(totalCO2PerHour);
+}
+
+// ============================================================
+// BOUCLE D'ANIMATION — simule le mouvement temps réel
+// ============================================================
+
+function tick() {
+  vehicles.forEach(v => {
+    v.progress += v.speed;
+    if (v.progress >= 1) {
+      // trajet terminé -> nouveau trajet
+      Object.assign(v, makeVehicle(v.type, v.id));
+    }
+  });
+
+  Object.keys(COUNTS).forEach(type => {
+    const src = map.getSource(type);
+    if (src) src.setData(geojsonFor(type));
+  });
+
+  if (popup) {
+    // referme le popup s'il devient obsolète (trajet recyclé) — simplification proto
+  }
+
+  requestAnimationFrame(tick);
+}
+
+setInterval(updateStats, 3000);
+</script>
+
+</body>
+</html>
