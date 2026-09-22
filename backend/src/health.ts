@@ -34,11 +34,12 @@ export function getHealth() {
   }
 
   const vehicleFeeds = feeds.filter((f) => !OVERLAY_FEEDS.has(f.name))
-  const ok =
+  const allFeedsOk =
     vehicleFeeds.every((f) => f.ok) && satellites.ok && road.ok
 
   return {
-    ok,
+    ok: true,
+    allFeedsOk,
     vehicles: hub.all().length,
     feeds,
     satellites,

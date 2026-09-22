@@ -168,8 +168,12 @@ export const MONITORING_HTML = `<!DOCTYPE html>
     }
 
     function render(data) {
-      document.getElementById('api-ok').textContent = data.ok ? 'OK' : 'DOWN';
-      document.getElementById('api-ok').className = 'value ' + (data.ok ? 'ok' : 'bad');
+      const allFeedsOk = data.allFeedsOk ?? data.ok;
+      document.getElementById('api-ok').textContent = 'OK';
+      document.getElementById('api-ok').className = 'value ok';
+      document.getElementById('api-ok').title = allFeedsOk
+        ? 'Health endpoint reachable; all feeds OK'
+        : 'Health endpoint reachable; some feeds are in error (see tables)';
       document.getElementById('vehicles').textContent = String(data.vehicles ?? 0);
 
       const sat = data.satellites || {};

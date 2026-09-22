@@ -33,7 +33,7 @@ npm run dev
 | `WS /ws/vehicles` | Live vehicle positions |
 | `GET /api/vehicles` | Same snapshot over HTTP |
 | `GET /api/co2/factors` | Emission factors (g CO₂e / passenger·km) |
-| `GET /api/health` | Feed status (JSON): `feeds`, `satellites`, `road`, `vehicles` |
+| `GET /api/health` | Feed status (JSON): `ok` (API up), `allFeedsOk`, `feeds`, `satellites`, `road`, `vehicles` |
 | `GET /monitoring` | Feed status dashboard (HTML, polls `/api/health`) |
 | `GET /api/satellites/tle?group=stations` | TLE data (`stations`, `starlink`, `gps-ops`, `weather`) |
 | `GET /api/road/traffic` | Road traffic GeoJSON |
