@@ -2,6 +2,7 @@ import WebSocket from 'ws'
 import { hub } from '../hub/store.js'
 import type { Vehicle } from '../types/vehicle.js'
 import { FRANCE_AIS_BBOX } from '../config/geo.js'
+import { settings } from '../config/settings.js'
 
 const AIS_URL = 'wss://stream.aisstream.io/v0/stream'
 const STALE_MS = 15 * 60_000
@@ -102,7 +103,7 @@ function startSocket(apiKey: string): void {
 }
 
 export function startAisStream(): void {
-  const apiKey = process.env.AISSTREAM_API_KEY?.trim()
+  const apiKey = settings.aisstreamApiKey.trim()
   if (!apiKey) {
     console.warn('[aisstream] AISSTREAM_API_KEY missing — boats disabled')
     hub.setFeedHealth('aisstream', {

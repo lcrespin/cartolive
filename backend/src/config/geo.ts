@@ -1,4 +1,4 @@
-/** Metropolitan France + nearby waters (WGS84). */
+/** Loose query box for upstream APIs (OpenSky, AIS). Display filter uses `data/france-zone.geojson`. */
 export const FRANCE_BBOX = {
   lamin: 41.3,
   lamax: 51.2,

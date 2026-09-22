@@ -1,3 +1,4 @@
+import { filterVehicles } from '../geo/franceZone.js'
 import type { FeedHealth, Vehicle, VehicleType } from '../types/vehicle.js'
 
 type HubListener = (vehicles: Vehicle[]) => void
@@ -9,7 +10,7 @@ export class VehicleHub {
   private emitTimer: ReturnType<typeof setTimeout> | null = null
 
   upsertMany(vehicles: Vehicle[]): void {
-    for (const v of vehicles) {
+    for (const v of filterVehicles(vehicles)) {
       this.byId.set(`${v.type}:${v.id}`, v)
     }
     this.scheduleEmit()
@@ -19,10 +20,28 @@ export class VehicleHub {
     for (const key of this.byId.keys()) {
       if (key.startsWith(`${type}:`)) this.byId.delete(key)
     }
-    for (const v of vehicles) {
+    for (const v of filterVehicles(vehicles)) {
       this.byId.set(`${v.type}:${v.id}`, v)
     }
     this.emitNow()
+  }
+
+  replaceByPrefix(type: VehicleType, prefix: string, vehicles: Vehicle[]): void {
+    const keyPrefix = `${type}:${prefix}`
+    for (const key of this.byId.keys()) {
+      if (key.startsWith(keyPrefix)) this.byId.delete(key)
+    }
+    for (const v of filterVehicles(vehicles)) {
+      this.byId.set(`${v.type}:${v.id}`, v)
+    }
+    this.emitNow()
+  }
+
+  countByPrefix(type: VehicleType, prefix: string): number {
+    const keyPrefix = `${type}:${prefix}`
+    let n = 0
+    for (const key of this.byId.keys()) if (key.startsWith(keyPrefix)) n++
+    return n
   }
 
   removeStale(type: VehicleType, maxAgeMs: number): void {

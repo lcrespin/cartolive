@@ -6,15 +6,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { settings } from '../config/settings.js'
 
 const execFileAsync = promisify(execFile)
 const POLL_MS = 30_000
-const DEFAULT_SNCF_TU =
-  process.env.SNCF_GTFS_RT_URL ??
-  'https://proxy.transport.data.gouv.fr/resource/sncf-gtfs-rt-trip-updates'
-const DEFAULT_SNCF_GTFS =
-  process.env.SNCF_GTFS_STATIC_URL ??
-  'https://eu.ftp.opendatasoft.com/sncf/plandata/Export_OpenData_SNCF_GTFS_NewTripId.zip'
+const DEFAULT_SNCF_TU = settings.sncfGtfsRtUrl
+const DEFAULT_SNCF_GTFS = settings.sncfGtfsStaticUrl
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const CACHE_DIR = path.resolve(__dirname, '../../.cache')

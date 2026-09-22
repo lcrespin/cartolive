@@ -1,56 +1,90 @@
 # breathe.live
 
-Real-time multimodal transport map for France with carbon footprint factors from ADEME / Impact CO2.
+Real-time transport map (France) with ADEME / Impact CO₂ factors. Monorepo: `frontend/` (Vite + MapLibre) and `backend/` (Fastify).
 
-## Stack
-
-- **frontend/** — Vite + TypeScript + MapLibre GL (OpenFreeMap dark)
-- **backend/** — Fastify + TypeScript (proxy, cache, WebSocket hub)
-
-## Quick start
+## Usage
 
 ```bash
-cp backend/.env.example backend/.env
-# fill in keys you have (OpenSky, AISstream, Impact CO2, IDFM feed URL)
-
+cp backend/.env.example backend/.env   # configure keys and URLs
 npm install
 npm run dev
 ```
 
-- Map UI: http://localhost:5173  
-- Backend: http://localhost:3001  
-- Health: http://localhost:3001/api/health  
+| URL | |
+|---|---|
+| Map | http://localhost:5173 |
+| API | http://localhost:3001 |
+| Health | http://localhost:3001/api/health |
+| Feed monitor | http://localhost:3001/monitoring |
 
-## API keys
+### Commands
 
-| Variable | Required? | Where |
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Backend + frontend |
+| `npm run dev:backend` | Backend only |
+| `npm run dev:frontend` | Frontend only |
+| `npm run refresh:co2-factors` | Update `backend/data/co2-factors.snapshot.json` from Impact CO2 (restart backend after) |
+
+### HTTP / WebSocket
+
+| Endpoint | |
+|---|---|
+| `WS /ws/vehicles` | Live vehicle positions |
+| `GET /api/vehicles` | Same snapshot over HTTP |
+| `GET /api/co2/factors` | Emission factors (g CO₂e / passenger·km) |
+| `GET /api/health` | Feed status (JSON): `feeds`, `satellites`, `road`, `vehicles` |
+| `GET /monitoring` | Feed status dashboard (HTML, polls `/api/health`) |
+| `GET /api/satellites/tle?group=stations` | TLE data (`stations`, `starlink`, `gps-ops`, `weather`) |
+| `GET /api/road/traffic` | Road traffic GeoJSON |
+| `GET /api/geo/france-zone` | Metropolitan France land + EEZ polygons (display filter) |
+
+Objects and layers are shown only inside **metropolitan France + métropole EEZ** (point-in-polygon), not the rectangular OpenSky/AIS query box. Geometry: admin regions ([france-geojson](https://github.com/gregoiredavid/france-geojson)) + EEZ ([Marine Regions](https://www.marineregions.org/)).
+
+## Live feeds
+
+Sources used by default (override via `backend/.env` where noted). Check `/api/health` if a feed is down or empty.
+
+| Layer | Source | Default URL |
 |---|---|---|
-| `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` | Recommended | [OpenSky Account](https://opensky-network.org) → API client (OAuth2). Anonymous works with low quota. |
-| `AISSTREAM_API_KEY` | For boats | [aisstream.io](https://aisstream.io) |
-| `IMPACT_CO2_API_KEY` | Optional | [impactco2.fr](https://impactco2.fr) — falls back to hardcoded ADEME-order factors |
-| `IDFM_GTFS_RT_URL` | Optional | Real GTFS-RT **VehiclePositions** URL if you have one |
-| _(default)_ | — | Without `IDFM_GTFS_RT_URL`, buses/metro use a community [GTFS-RT trip-updates](http://gtfsidfm.clarifygdps.com/gtfs-rt-trips-idfm) feed + IDFM `arrets-lignes` stops (approximate next-stop positions) |
+| **Planes** | [OpenSky Network](https://opensky-network.org) states API (France bbox) | https://opensky-network.org/api/states/all — OAuth2 optional (`OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET`) |
+| **Boats** | [AISstream](https://aisstream.io) WebSocket | `wss://stream.aisstream.io/v0/stream` — requires `AISSTREAM_API_KEY` |
+| **Trains** | SNCF GTFS-RT trip updates + static GTFS stops | Trip updates: https://proxy.transport.data.gouv.fr/resource/sncf-gtfs-rt-trip-updates — Stops: https://eu.ftp.opendatasoft.com/sncf/plandata/Export_OpenData_SNCF_GTFS_NewTripId.zip (`SNCF_GTFS_RT_URL`, `SNCF_GTFS_STATIC_URL`). Positions are **approximate** (next stop). |
+| **Buses & metro (Paris)** | IDFM | If `IDFM_GTFS_RT_URL` is set: that VehiclePositions feed. Otherwise trip updates http://gtfsidfm.clarifygdps.com/gtfs-rt-trips-idfm + stops https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/arrets-lignes/exports/csv — **approximate** next-stop positions. Official SIRI: [PRIM](https://prim.iledefrance-mobilites.fr). |
+| **Buses (other cities)** | GTFS-RT VehiclePositions | See list below (`GTFS_RT_FEEDS` to override) |
 
-### SNCF trains
+Extra-city bus feeds (merged into the `bus` layer with city prefixes):
 
-Uses public GTFS-RT **trip updates** plus static GTFS stop coordinates. Positions are **approximate** (placed at the next known stop), because SNCF does not publish a public vehicle-positions feed. Static GTFS default:
+- Lyon — https://proxy.transport.data.gouv.fr/resource/tcl-lyon-gtfs-rt-vehicle-position
+- Marseille — https://proxy.transport.data.gouv.fr/resource/rtm-marseille-gtfs-rt-vehicle-position
+- Toulouse — https://api.tisseo.fr/opendata/gtfsrt/GtfsRt.pb
+- Bordeaux — https://bdx.mecatran.com/utw/ws/gtfsfeed/vehicles/bordeaux?apiKey=opendata-bordeaux-metropole-flux-gtfs-rt
+- Nantes — https://proxy.transport.data.gouv.fr/resource/naolib-nantes-gtfs-rt-vehicle-position
+- Lille — https://proxy.transport.data.gouv.fr/resource/ilevia-lille-gtfs-rt
 
-`https://eu.ftp.opendatasoft.com/sncf/plandata/Export_OpenData_SNCF_GTFS_NewTripId.zip`
+**Not on the vehicle hub** (separate map overlays / APIs):
 
-### IDFM buses & metro
+| Layer | Source | URL |
+|---|---|---|
+| **Satellites** | [CelesTrak](https://celestrak.org) TLE (cached in backend) | `GET /api/satellites/tle?group=` — e.g. https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=TLE |
+| **Road traffic** | Bison Futé Tipi open data | QTV: http://tipi.bison-fute.gouv.fr/bison-fute-ouvert/publicationsDIR/QTV-DIR/qtvDir.xml — geometry: http://tipi.bison-fute.gouv.fr/bison-fute-ouvert/publicationsDIR/QTV-DIR/refDir.csv (`BISON_FUTE_URL`, `BISON_FUTE_REF_URL`) |
 
-Official IDFM real-time is mostly SIRI Lite on [PRIM](https://prim.iledefrance-mobilites.fr) (token required). By default this app uses:
+## Configuration
 
-1. Trip updates from `http://gtfsidfm.clarifygdps.com/gtfs-rt-trips-idfm` (community SIRI→GTFS-RT bridge)
-2. Stop coordinates from IDFM open data `arrets-lignes`
+All backend settings live in **`backend/.env`**. Copy from **`backend/.env.example`** (comments document each variable and defaults).
 
-Positions are **approximate** (next stop). Override with `IDFM_GTFS_RT_URL` when you have a true vehicle-positions feed.
-## Protocol
+| Variable | Notes |
+|---|---|
+| `OPENSKY_CLIENT_ID` / `OPENSKY_CLIENT_SECRET` | [OpenSky](https://opensky-network.org) OAuth2; empty = anonymous (lower quota) |
+| `AISSTREAM_API_KEY` | [aisstream.io](https://aisstream.io) — boats |
+| `IMPACT_CO2_API_KEY` | [impactco2.fr](https://impactco2.fr) — refresh script only |
+| `IMPACT_CO2_BOAT_G_PER_PASSENGER_KM` | Refresh script only (maritime factor not in Impact CO2 transport API) |
+| `IMPACT_CO2_BOAT_ADEME_LABEL` | Optional label in CO₂ snapshot (refresh only) |
+| `IDFM_GTFS_RT_URL` | Optional true VehiclePositions for Paris; empty = approximate IDFM fallback |
+| `GTFS_RT_FEEDS` | JSON override for extra-city bus GTFS-RT feeds |
+| `BISON_FUTE_URL` / `BISON_FUTE_REF_URL` | Optional Bison Futé source URLs |
+| `SNCF_*`, `IDFM_*` | Train / Paris bus feed URLs (see `.env.example`) |
 
-- `WS /ws/vehicles` — JSON `{ type: "snapshot", vehicles: Vehicle[] }`
-- `GET /api/co2/factors` — emission factors by mode (gCO₂e / passenger·km)
-- `GET /api/health` — feed status
+**CO₂ at runtime** reads `backend/data/co2-factors.snapshot.json` only. Run `npm run refresh:co2-factors` when you want new ADEME / Impact CO2 values.
 
-## Prototype
-
-`index.html` at the repo root is the original simulated prototype (reference only).
+Product notes and architecture: `plan/PROJECT.md`, `plan/PLAN.md`. Root `index.html` is an old UI prototype.

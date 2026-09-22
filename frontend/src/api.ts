@@ -1,4 +1,4 @@
-import type { Co2Factors, Vehicle } from './types'
+import type { Co2Factors, RoadCollection, SatelliteGroup, TleRecord, Vehicle } from './types'
 
 const factorsUrl = '/api/co2/factors'
 
@@ -6,6 +6,19 @@ export async function fetchCo2Factors(): Promise<Co2Factors> {
   const res = await fetch(factorsUrl)
   if (!res.ok) throw new Error(`CO2 factors ${res.status}`)
   return res.json() as Promise<Co2Factors>
+}
+
+export async function fetchTleGroup(group: SatelliteGroup): Promise<TleRecord[]> {
+  const res = await fetch(`/api/satellites/tle?group=${encodeURIComponent(group)}`)
+  if (!res.ok) throw new Error(`TLE ${group} ${res.status}`)
+  const data = (await res.json()) as { records: TleRecord[] }
+  return data.records
+}
+
+export async function fetchRoadTraffic(): Promise<RoadCollection> {
+  const res = await fetch('/api/road/traffic')
+  if (!res.ok) throw new Error(`road traffic ${res.status}`)
+  return res.json() as Promise<RoadCollection>
 }
 
 export type VehiclesHandler = (vehicles: Vehicle[]) => void

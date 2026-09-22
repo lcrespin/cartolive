@@ -1,13 +1,19 @@
 import './style.css'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { connectVehiclesWs, fetchCo2Factors } from './api'
+import { connectVehiclesWs, fetchCo2Factors, fetchRoadTraffic, fetchTleGroup } from './api'
 import { co2PerHourKg, co2TripPerPassengerKg } from './co2'
+import { initFranceZone, inFranceZone } from './franceZone'
+import { buildSatrecs, propagateAll, type CachedSatrec } from './satellites'
 import {
   ALL_TYPES,
   LAYER_COLORS,
+  SAT_GROUP_LABEL,
+  SATELLITE_GROUPS,
   TYPE_LABEL,
   type Co2Factors,
+  type Satellite,
+  type SatelliteGroup,
   type Vehicle,
   type VehicleType,
 } from './types'
@@ -34,6 +40,22 @@ app.innerHTML = `
         <span class="layer-count" id="count-${t}">0</span>
       </div>`,
     ).join('')}
+    <div class="layer-btn active" data-layer="satellite" id="sat-layer-btn">
+      <span class="layer-dot" style="background: var(--sat)"></span>
+      Satellites
+      <span class="layer-count" id="count-satellite">0</span>
+    </div>
+    <div class="sat-filters open" id="sat-filters">
+      ${SATELLITE_GROUPS.map(
+        (g) => `
+        <span class="sat-chip active" data-sat-group="${g}">${SAT_GROUP_LABEL[g]}</span>`,
+      ).join('')}
+    </div>
+    <div class="layer-btn active" data-layer="road" id="road-layer-btn">
+      <span class="layer-dot" style="background: var(--road)"></span>
+      Road traffic
+      <span class="layer-count" id="count-road">0</span>
+    </div>
   </div>
   <div class="co2-panel">
     <div class="co2-label">Cumulative emissions — objects in view</div>
@@ -68,28 +90,48 @@ const map = new maplibregl.Map({
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right')
 
 let vehicles: Vehicle[] = []
+let satellites: Satellite[] = []
+let satrecs: CachedSatrec[] = []
 let factors: Co2Factors = {
-  plane: 230,
-  train: 3,
-  boat: 15,
-  bus: 68,
-  source: 'Fallback',
+  plane: 224.2,
+  train: 2.3,
+  boat: 18.7,
+  bus: 113.5,
+  source: 'Snapshot loading…',
   updatedAt: new Date().toISOString(),
 }
 const activeLayers = new Set<VehicleType>(ALL_TYPES)
+let satellitesOn = true
+const satGroups = new Set<SatelliteGroup>(SATELLITE_GROUPS)
+let roadOn = true
+let roadSegmentCount = 0
 let popup: maplibregl.Popup | null = null
 let layersReady = false
+let factorSource = 'Base Empreinte® ADEME via Impact CO2'
 
 function geojsonFor(type: VehicleType): GeoJSON.FeatureCollection {
   return {
     type: 'FeatureCollection',
     features: vehicles
-      .filter((v) => v.type === type)
+      .filter((v) => v.type === type && inFranceZone(v.lon, v.lat))
       .map((v) => ({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [v.lon, v.lat] },
         properties: { id: v.id, type: v.type },
       })),
+  }
+}
+
+function satGeojson(): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: satellites
+      .filter((s) => inFranceZone(s.lon, s.lat))
+      .map((s) => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
+      properties: { id: s.id, name: s.name, group: s.group, altitudeKm: s.altitudeKm },
+    })),
   }
 }
 
@@ -118,8 +160,7 @@ function buildPopupHTML(v: Vehicle): string {
     )
   }
 
-  const co2Value =
-    tripPax != null ? `${tripPax.toFixed(1)} kg` : `${factor} g/pax·km`
+  const co2Value = tripPax != null ? `${tripPax.toFixed(1)} kg` : `${factor} g/pax·km`
   const co2Label = tripPax != null ? 'CO₂ / passenger' : 'CO₂ factor'
   const co2Detail =
     tripPax != null
@@ -146,6 +187,23 @@ function buildPopupHTML(v: Vehicle): string {
   `
 }
 
+function buildSatPopup(s: Satellite): string {
+  return `
+    <div class="pop">
+      <div class="pop-head">
+        <div class="pop-type">Satellite · ${escapeHtml(SAT_GROUP_LABEL[s.group])}</div>
+        <div class="pop-title">${escapeHtml(s.name)}</div>
+      </div>
+      <div class="pop-body">
+        <div class="pop-row"><span class="k">Altitude</span><span class="v">${Math.round(s.altitudeKm).toLocaleString('en-US')} km</span></div>
+        <div class="pop-co2">
+          <div class="pop-co2-compare">No ADEME / Impact CO2 factor for orbital objects.</div>
+        </div>
+      </div>
+    </div>
+  `
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
@@ -156,6 +214,18 @@ function setLayerVisibility(type: VehicleType, visible: boolean): void {
   if (map.getLayer(`${type}-halo`)) map.setLayoutProperty(`${type}-halo`, 'visibility', v)
 }
 
+function setSatVisibility(visible: boolean): void {
+  const v = visible ? 'visible' : 'none'
+  if (map.getLayer('satellite-point')) map.setLayoutProperty('satellite-point', 'visibility', v)
+  if (map.getLayer('satellite-halo')) map.setLayoutProperty('satellite-halo', 'visibility', v)
+}
+
+function setRoadVisibility(visible: boolean): void {
+  const v = visible ? 'visible' : 'none'
+  if (map.getLayer('road-halo')) map.setLayoutProperty('road-halo', 'visibility', v)
+  if (map.getLayer('road-lines')) map.setLayoutProperty('road-lines', 'visibility', v)
+}
+
 function refreshSources(): void {
   if (!layersReady) return
   for (const type of ALL_TYPES) {
@@ -164,33 +234,135 @@ function refreshSources(): void {
   }
 }
 
-function inMapView(v: Vehicle): boolean {
-  // Do not use map.loaded() — it flips false while GeoJSON sources update,
-  // which made the CO₂ total flicker to 0 on every feed refresh.
+function refreshSatellites(): void {
+  if (!layersReady) return
+  const src = map.getSource('satellite') as maplibregl.GeoJSONSource | undefined
+  src?.setData(satGeojson())
+}
+
+function inMapView(lon: number, lat: number): boolean {
   if (!layersReady) return false
-  const lon = Number(v.lon)
-  const lat = Number(v.lat)
   if (!Number.isFinite(lon) || !Number.isFinite(lat)) return false
+  if (!inFranceZone(lon, lat)) return false
   return map.getBounds().contains([lon, lat])
+}
+
+function updateSourceNote(): void {
+  const note = document.getElementById('source-note')
+  if (!note) return
+  const extras: string[] = []
+  if (satellitesOn) extras.push('orbits: <strong>CelesTrak</strong> TLE + SGP4')
+  if (roadOn) extras.push('roads: <strong>Bison Futé</strong>')
+  note.innerHTML = `Emission factors: <strong>${escapeHtml(factorSource)}</strong>${
+    extras.length ? `<br>${extras.join(' · ')}` : ''
+  }`
 }
 
 function updateStats(): void {
   const counts: Record<VehicleType, number> = { plane: 0, train: 0, boat: 0, bus: 0 }
-  for (const v of vehicles) counts[v.type]++
+  for (const v of vehicles) {
+    if (inFranceZone(v.lon, v.lat)) counts[v.type]++
+  }
   for (const type of ALL_TYPES) {
     const el = document.getElementById(`count-${type}`)
     if (el) el.textContent = String(counts[type])
   }
+  const satEl = document.getElementById('count-satellite')
+  if (satEl) {
+    const satN = satellitesOn ? satellites.filter((s) => inFranceZone(s.lon, s.lat)).length : 0
+    satEl.textContent = String(satN)
+  }
+  const roadEl = document.getElementById('count-road')
+  if (roadEl) roadEl.textContent = String(roadOn ? roadSegmentCount : 0)
 
-  // CO₂ + header count: active layers AND inside current map viewport
-  const inView = vehicles.filter((v) => activeLayers.has(v.type) && inMapView(v))
+  const inView = vehicles.filter((v) => activeLayers.has(v.type) && inMapView(v.lon, v.lat))
+  const satInView = satellitesOn ? satellites.filter((s) => inMapView(s.lon, s.lat)).length : 0
   const obj = document.getElementById('obj-count')
-  if (obj) obj.textContent = `${inView.length.toLocaleString('en-US')} objects in view`
+  if (obj) {
+    obj.textContent = `${(inView.length + satInView).toLocaleString('en-US')} objects in view`
+  }
 
   const total = inView.reduce((sum, v) => sum + co2PerHourKg(v, factors), 0)
   const totalEl = document.getElementById('co2-total')
   if (totalEl) totalEl.textContent = Math.round(total).toLocaleString('en-US')
 }
+
+function tickSats(): void {
+  if (!satellitesOn || satrecs.length === 0) {
+    satellites = []
+    refreshSatellites()
+    updateStats()
+    return
+  }
+  satellites = propagateAll(satrecs)
+  refreshSatellites()
+  updateStats()
+}
+
+const tleCache = new Map<SatelliteGroup, CachedSatrec[]>()
+
+async function loadSatGroup(group: SatelliteGroup): Promise<void> {
+  const cached = tleCache.get(group)
+  if (cached && cached.length > 0) return
+  const chip = document.querySelector(`[data-sat-group="${group}"]`)
+  chip?.classList.add('loading')
+  try {
+    const records = await fetchTleGroup(group)
+    tleCache.set(group, buildSatrecs(group, records))
+  } finally {
+    chip?.classList.remove('loading')
+  }
+}
+
+async function syncSatrecs(): Promise<void> {
+  if (!satellitesOn) {
+    satrecs = []
+    tickSats()
+    return
+  }
+  const wanted = [...satGroups]
+  await Promise.all(
+    wanted.map(async (g) => {
+      try {
+        await loadSatGroup(g)
+      } catch (err) {
+        console.warn('TLE load failed', g, err)
+      }
+    }),
+  )
+  satrecs = wanted.flatMap((g) => tleCache.get(g) ?? [])
+  tickSats()
+}
+
+async function loadRoads(): Promise<void> {
+  if (!layersReady) return
+  try {
+    const data = await fetchRoadTraffic()
+    const features = data.features.filter((f) => {
+      const coords = f.geometry.coordinates
+      if (coords.length === 0) return false
+      const mid =
+        coords.length === 1
+          ? coords[0]
+          : [(coords[0][0] + coords[coords.length - 1][0]) / 2, (coords[0][1] + coords[coords.length - 1][1]) / 2]
+      return inFranceZone(mid[0], mid[1])
+    })
+    roadSegmentCount = features.length
+    const src = map.getSource('road') as maplibregl.GeoJSONSource | undefined
+    src?.setData({
+      type: 'FeatureCollection',
+      features,
+    })
+    const el = document.getElementById('count-road')
+    if (el) el.textContent = String(roadOn ? roadSegmentCount : 0)
+  } catch (err) {
+    console.warn('road traffic', err)
+  }
+}
+
+const franceZoneReady = initFranceZone().catch((err) => {
+  console.warn('France zone load failed', err)
+})
 
 map.on('load', () => {
   for (const type of ALL_TYPES) {
@@ -234,14 +406,111 @@ map.on('load', () => {
       map.getCanvas().style.cursor = ''
     })
   }
+
+  map.addSource('satellite', { type: 'geojson', data: satGeojson() })
+  map.addLayer({
+    id: 'satellite-halo',
+    type: 'circle',
+    source: 'satellite',
+    paint: { 'circle-radius': 14, 'circle-color': '#d4e157', 'circle-opacity': 0.22 },
+  })
+  map.addLayer({
+    id: 'satellite-point',
+    type: 'circle',
+    source: 'satellite',
+    paint: {
+      'circle-radius': 6.5,
+      'circle-color': '#d4e157',
+      'circle-stroke-width': 1.5,
+      'circle-stroke-color': '#0a0e14',
+    },
+  })
+  map.on('click', 'satellite-point', (e) => {
+    const p = e.features?.[0]?.properties
+    if (!p) return
+    const s = satellites.find((sat) => sat.id === p.id)
+    if (!s) return
+    popup?.remove()
+    popup = new maplibregl.Popup({ offset: 12, closeButton: true })
+      .setLngLat([s.lon, s.lat])
+      .setHTML(buildSatPopup(s))
+      .addTo(map)
+  })
+  map.on('mouseenter', 'satellite-point', () => {
+    map.getCanvas().style.cursor = 'pointer'
+  })
+  map.on('mouseleave', 'satellite-point', () => {
+    map.getCanvas().style.cursor = ''
+  })
+
+  map.addSource('road', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  map.addLayer({
+    id: 'road-halo',
+    type: 'line',
+    source: 'road',
+    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 12, 7, 7, 11, 4],
+      'line-color': '#0a0e14',
+      'line-opacity': 0.55,
+    },
+  })
+  map.addLayer({
+    id: 'road-lines',
+    type: 'line',
+    source: 'road',
+    layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 7.5, 7, 4, 11, 2.4],
+      'line-color': [
+        'match',
+        ['get', 'status'],
+        'fluid',
+        '#3ed9c4',
+        'heavy',
+        '#f2a65a',
+        'congested',
+        '#e85d4c',
+        '#8b95a5',
+      ],
+      'line-opacity': 0.85,
+    },
+  })
+
   layersReady = true
-  refreshSources()
-  updateStats()
+  setRoadVisibility(roadOn)
+  void franceZoneReady.then(() => {
+    refreshSources()
+    updateStats()
+    updateSourceNote()
+    void syncSatrecs()
+    if (roadOn) void loadRoads()
+  })
 })
 
 document.querySelectorAll('.layer-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
-    const type = (btn as HTMLElement).dataset.layer as VehicleType
+    const layer = (btn as HTMLElement).dataset.layer
+    if (layer === 'satellite') {
+      satellitesOn = !satellitesOn
+      btn.classList.toggle('active', satellitesOn)
+      document.getElementById('sat-filters')?.classList.toggle('open', satellitesOn)
+      setSatVisibility(satellitesOn)
+      void syncSatrecs()
+      updateSourceNote()
+      updateStats()
+      return
+    }
+    if (layer === 'road') {
+      roadOn = !roadOn
+      btn.classList.toggle('active', roadOn)
+      setRoadVisibility(roadOn)
+      if (roadOn) void loadRoads()
+      updateSourceNote()
+      updateStats()
+      return
+    }
+    const type = layer as VehicleType
     if (activeLayers.has(type)) {
       activeLayers.delete(type)
       btn.classList.remove('active')
@@ -255,22 +524,38 @@ document.querySelectorAll('.layer-btn').forEach((btn) => {
   })
 })
 
+document.querySelectorAll('.sat-chip').forEach((chip) => {
+  chip.addEventListener('click', (ev) => {
+    ev.stopPropagation()
+    const group = (chip as HTMLElement).dataset.satGroup as SatelliteGroup
+    if (satGroups.has(group)) {
+      if (satGroups.size === 1) return
+      satGroups.delete(group)
+      chip.classList.remove('active')
+    } else {
+      satGroups.add(group)
+      chip.classList.add('active')
+    }
+    void syncSatrecs()
+  })
+})
+
 const liveDot = document.getElementById('live-dot')!
 
 connectVehiclesWs((next) => {
   vehicles = next
   liveDot.classList.remove('off')
-  refreshSources()
-  updateStats()
+  void franceZoneReady.then(() => {
+    refreshSources()
+    updateStats()
+  })
 })
 
 void fetchCo2Factors()
   .then((f) => {
     factors = f
-    const note = document.getElementById('source-note')
-    if (note) {
-      note.innerHTML = `Emission factors: <strong>${escapeHtml(f.source)}</strong>`
-    }
+    factorSource = f.source
+    updateSourceNote()
     updateStats()
   })
   .catch(() => {
@@ -280,3 +565,14 @@ void fetchCo2Factors()
 map.on('moveend', updateStats)
 map.on('zoomend', updateStats)
 setInterval(updateStats, 3000)
+setInterval(tickSats, 1000)
+setInterval(() => {
+  if (roadOn) void loadRoads()
+}, 6 * 60_000)
+function refreshTleCache(): void {
+  tleCache.clear()
+  if (satellitesOn) void syncSatrecs()
+}
+
+setInterval(refreshTleCache, 2 * 60 * 60_000)
+window.addEventListener('focus', refreshTleCache)

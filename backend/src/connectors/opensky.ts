@@ -1,6 +1,7 @@
 import { hub } from '../hub/store.js'
 import type { Vehicle } from '../types/vehicle.js'
 import { FRANCE_BBOX } from '../config/geo.js'
+import { settings } from '../config/settings.js'
 
 const TOKEN_URL =
   'https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token'
@@ -11,8 +12,8 @@ let accessToken: string | null = null
 let tokenExpiresAt = 0
 
 async function getToken(): Promise<string | null> {
-  const clientId = process.env.OPENSKY_CLIENT_ID
-  const clientSecret = process.env.OPENSKY_CLIENT_SECRET
+  const clientId = settings.openskyClientId.trim()
+  const clientSecret = settings.openskyClientSecret.trim()
   if (!clientId || !clientSecret) return null
 
   if (accessToken && Date.now() < tokenExpiresAt - 60_000) return accessToken
@@ -91,7 +92,7 @@ async function poll(): Promise<void> {
 }
 
 export function startOpenSky(): void {
-  const hasCreds = Boolean(process.env.OPENSKY_CLIENT_ID && process.env.OPENSKY_CLIENT_SECRET)
+  const hasCreds = Boolean(settings.openskyClientId.trim() && settings.openskyClientSecret.trim())
   console.log(`[opensky] starting (auth=${hasCreds ? 'oauth2' : 'anonymous'})`)
   void poll()
   setInterval(() => void poll(), POLL_MS)

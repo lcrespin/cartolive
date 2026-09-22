@@ -1,0 +1,35 @@
+{
+  "plane": 224.20000000000002,
+  "train": 2.3,
+  "boat": 18.7,
+  "bus": 113.5,
+  "source": "Base Empreinte® ADEME via Impact CO2 (snapshot)",
+  "updatedAt": "2026-09-22T21:50:03.661Z",
+  "capturedAt": "2026-09-22T21:50:03.661Z",
+  "mapping": {
+    "plane": {
+      "impactCo2Id": 1,
+      "impactCo2Name": "Avion trajet court",
+      "kgCo2ePerPassengerKm": 0.2242,
+      "gCo2ePerPassengerKm": 224.20000000000002
+    },
+    "train": {
+      "impactCo2Id": 2,
+      "impactCo2Name": "TGV",
+      "kgCo2ePerPassengerKm": 0.0023,
+      "gCo2ePerPassengerKm": 2.3
+    },
+    "bus": {
+      "impactCo2Id": 9,
+      "impactCo2Name": "Bus thermique",
+      "kgCo2ePerPassengerKm": 0.1135,
+      "gCo2ePerPassengerKm": 113.5
+    },
+    "boat": {
+      "impactCo2Id": 0,
+      "impactCo2Name": "Ferry passager (Base Empreinte ADEME — not in Impact CO2 transport catalog)",
+      "kgCo2ePerPassengerKm": 0.018699999999999998,
+      "gCo2ePerPassengerKm": 18.7
+    }
+  }
+}

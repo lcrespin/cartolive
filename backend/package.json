@@ -6,9 +6,12 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "refresh:co2-factors": "tsx scripts/refresh-co2-factors.ts"
   },
   "dependencies": {
+    "@turf/boolean-point-in-polygon": "^7.2.0",
+    "@turf/helpers": "^7.2.0",
     "@fastify/cors": "^11.0.1",
     "@fastify/websocket": "^11.0.2",
     "dotenv": "^16.4.7",

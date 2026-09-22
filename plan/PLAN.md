@@ -17,9 +17,10 @@ This document records **decisions you locked** and the build sequence. Nothing h
 | Basemap | OpenFreeMap dark (switched from CARTO — API key now required) |
 | Transport | Hybrid: WebSocket for live positions, HTTP for CO2 factors |
 | Feeds (day one) | OpenSky (planes), AISstream (boats), SNCF GTFS-RT (trains), IDFM GTFS-RT only (buses/metro) |
+| Post-MVP layers | CelesTrak satellites (client SGP4), Bison Futé road overlay, extra-city GTFS-RT buses |
 | CO2 | Factor per mode + popup + live cumulative counter; **no** meal equivalent |
 | Hosting | Local only (no deployment in this phase) |
-| Out of scope now | Satellites, Bison Futé, 3D globe, Level 2/3 CO2 features, extra GTFS cities |
+| Out of scope now | Bike-share / GBFS, 3D globe, Level 2/3 CO2 features, deployment |
 
 ---
 
@@ -36,20 +37,23 @@ This document records **decisions you locked** and the build sequence. Nothing h
 ┌─────────────────────────────────────────────────────┐
 │  frontend/  (Vite + TypeScript)                      │
 │  MapLibre GL + OpenFreeMap dark                      │
-│  Layers: plane / train / boat / bus                  │
+│  Layers: plane / train / boat / bus + satellites + road │
 │  WS client → live vehicles                           │
-│  HTTP client → CO2 factors                           │
+│  HTTP → CO2, TLE, road GeoJSON                       │
 └───────────────────────┬─────────────────────────────┘
                         │ WS / HTTP (local)
 ┌───────────────────────▼─────────────────────────────┐
 │  backend/  (Fastify + TypeScript)                    │
 │  In-memory position hub + Impact CO2 cache           │
-│  Pollers: OpenSky, SNCF GTFS-RT, IDFM GTFS-RT        │
+│  Pollers: OpenSky, SNCF, IDFM, extra GTFS cities     │
+│  CelesTrak TLE cache · Bison Futé QTV overlay        │
 │  Push: AISstream WebSocket                           │
 │  Expose: /ws/vehicles, /api/co2/factors, /api/health │
+│          /api/satellites/tle, /api/road/traffic      │
 └───────────────────────┬─────────────────────────────┘
                         │
-     OpenSky · AISstream · SNCF · IDFM · Impact CO2
+     OpenSky · AISstream · SNCF · IDFM · extra cities
+     CelesTrak · Bison Futé · Impact CO2
 ```
 
 ### Why a backend (unchanged from PROJECT.md)
@@ -150,8 +154,8 @@ Secrets server-side only, e.g. `OPENSKY_*`, `AISSTREAM_API_KEY`, `IMPACT_CO2_API
 
 ## 7. Explicit non-goals
 
-- Satellites / `satellite.js`, Bison Futé, globe.gl
-- GTFS cities beyond IDFM
+- Bike-share / GBFS
+- globe.gl / Three.js
 - Level 2 A→B comparator, simulation mode, meal equivalents
 - Redis, production hosting, domain purchase
 - French UI primary (English now; bilingual later)
@@ -181,3 +185,23 @@ Any change to the locked table in §1, feed list, CO2 UX, or scope requires your
 - IDFM buses/metro require `IDFM_GTFS_RT_URL` (VehiclePositions). Official IDFM real-time is mostly SIRI Lite on PRIM.
 - AISstream requires `AISSTREAM_API_KEY`.
 - Impact CO2 values from `/api/v1/transport?km=1` are converted kg→g/passenger·km.
+
+## 11. Post-MVP layers (as built)
+
+Satellites and road traffic stay **out of** the vehicle WebSocket hub. Extra-city buses use `type: 'bus'` with city prefixes.
+
+### Satellites
+
+- Backend `GET /api/satellites/tle?group=` (`stations` | `starlink` | `gps-ops` | `weather`), CelesTrak GP API, in-memory + `backend/.cache/tle-*.json`, ~2h TTL.
+- Frontend `satellite.js` SGP4 every 1s; default filter **stations only**. Popup: name, group, altitude km. No CO₂ (not an ADEME transport mode).
+
+### Road traffic
+
+- Tipi QTV `qtvDir.xml` joined to `refDir.csv` (Lambert-93 → WGS84 LineStrings).
+- `GET /api/road/traffic` GeoJSON `{ status, speedKmh?, label? }`. MapLibre green / orange / red. Not in the CO₂ counter.
+
+### Extra GTFS-RT cities
+
+- `backend/src/connectors/gtfsCities.ts`, env `GTFS_RT_FEEDS` optional JSON override.
+- Day-one list: Lyon, Marseille, Toulouse, Bordeaux, Nantes, Lille. 404 skipped (health only).
+- Bordeaux TBM has a public VehiclePositions feed. Other cities often have no public VP (SIRI / trip-updates only).

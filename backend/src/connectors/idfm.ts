@@ -4,23 +4,16 @@ import { fileURLToPath } from 'node:url'
 import { hub } from '../hub/store.js'
 import { fetchGtfsRtBuffer, parseTripUpdates, parseVehiclePositions } from './gtfsRt.js'
 import type { Vehicle } from '../types/vehicle.js'
+import { settings } from '../config/settings.js'
 
 const POLL_MS = 30_000
 
 /** Optional true VehiclePositions feed (preferred when set). */
-const VP_URL = process.env.IDFM_GTFS_RT_URL
+const VP_URL = settings.idfmGtfsRtUrl
 
-/**
- * IDFM has no public official VehiclePositions GTFS-RT.
- * Community converter (SIRI Lite → GTFS-RT trip updates):
- * https://github.com/Jouca/IDFM_GTFS-RT
- */
-const TRIP_UPDATES_URL =
-  process.env.IDFM_TRIP_UPDATES_URL ?? 'http://gtfsidfm.clarifygdps.com/gtfs-rt-trips-idfm'
-
-const STOPS_EXPORT_URL =
-  process.env.IDFM_STOPS_URL ??
-  'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/arrets-lignes/exports/csv'
+/** Community converter (SIRI Lite → GTFS-RT trip updates): https://github.com/Jouca/IDFM_GTFS-RT */
+const TRIP_UPDATES_URL = settings.idfmTripUpdatesUrl
+const STOPS_EXPORT_URL = settings.idfmStopsUrl
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const CACHE_DIR = path.resolve(__dirname, '../../.cache')
@@ -137,7 +130,7 @@ async function pollVp(): Promise<void> {
   if (!VP_URL) return
   const buffer = await fetchGtfsRtBuffer(VP_URL)
   const vehicles = parseVehiclePositions(buffer, 'bus', 'idfm-')
-  hub.replaceType('bus', vehicles)
+  hub.replaceByPrefix('bus', 'idfm-', vehicles)
   hub.setFeedHealth('idfm', {
     ok: true,
     lastSuccessAt: new Date().toISOString(),
@@ -157,7 +150,7 @@ async function pollTripUpdates(stops: StopIndex, routes: RouteIndex): Promise<vo
     if (!u.stopId) continue
     const stop = stops[u.stopId]
     if (!stop) continue
-    const id = u.id
+    const id = `idfm-${u.id}`
     if (seen.has(id)) continue
     seen.add(id)
     vehicles.push({
@@ -171,7 +164,7 @@ async function pollTripUpdates(stops: StopIndex, routes: RouteIndex): Promise<vo
     })
   }
 
-  hub.replaceType('bus', vehicles)
+  hub.replaceByPrefix('bus', 'idfm-', vehicles)
   hub.setFeedHealth('idfm', {
     ok: true,
     lastSuccessAt: new Date().toISOString(),
