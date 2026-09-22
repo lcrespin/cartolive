@@ -12,7 +12,7 @@
     "@turf/boolean-point-in-polygon": "^7.2.0",
     "@turf/helpers": "^7.2.0",
     "maplibre-gl": "^5.2.0",
-    "satellite.js": "^7.1.0"
+    "satellite.js": "5.0.0"
   },
   "devDependencies": {
     "typescript": "~5.7.2",

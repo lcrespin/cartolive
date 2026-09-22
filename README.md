@@ -24,7 +24,23 @@ npm run dev
 | `npm run dev` | Backend + frontend |
 | `npm run dev:backend` | Backend only |
 | `npm run dev:frontend` | Frontend only |
+| `npm run build` | Typecheck + compile backend and frontend |
+| `npm run build:backend` | Backend `tsc` only |
+| `npm run build:frontend` | Frontend Vite production build |
+| `npm run preview` | Serve built frontend (`frontend/dist`) |
 | `npm run refresh:co2-factors` | Update `backend/data/co2-factors.snapshot.json` from Impact CO2 (restart backend after) |
+
+### Production build locally
+
+The API is not embedded in the static frontend. Run **both** the backend and the preview server:
+
+```bash
+npm run build
+npm run dev:backend    # terminal 1 — API + WebSocket on :3001
+npm run preview        # terminal 2 — minified app on http://localhost:4173
+```
+
+`vite preview` proxies `/api` and `/ws` to the backend (same as `npm run dev`). Use this for Lighthouse and performance checks; use `npm run dev` for everyday development.
 
 ### HTTP / WebSocket
 

@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { connectVehiclesWs, fetchCo2Factors, fetchRoadTraffic, fetchTleGroup } from './api'
 import { co2PerHourKg, co2TripPerPassengerKg } from './co2'
 import { initFranceZone, inFranceZone } from './franceZone'
-import { buildSatrecs, propagateAll, type CachedSatrec } from './satellites'
+import { buildSatrecs, propagateAllAsync, type CachedSatrec } from './satellites'
 import {
   ALL_TYPES,
   LAYER_COLORS,
@@ -108,6 +108,11 @@ let roadSegmentCount = 0
 let popup: maplibregl.Popup | null = null
 let layersReady = false
 let factorSource = 'Base Empreinte® ADEME via Impact CO2'
+let statsRaf = 0
+let statsDebounceTimer: ReturnType<typeof setTimeout> | undefined
+let satTickTimer: ReturnType<typeof setInterval> | undefined
+let satTickGen = 0
+let vehicleRefreshRaf = 0
 
 function geojsonFor(type: VehicleType): GeoJSON.FeatureCollection {
   return {
@@ -125,9 +130,7 @@ function geojsonFor(type: VehicleType): GeoJSON.FeatureCollection {
 function satGeojson(): GeoJSON.FeatureCollection {
   return {
     type: 'FeatureCollection',
-    features: satellites
-      .filter((s) => inFranceZone(s.lon, s.lat))
-      .map((s) => ({
+    features: satellites.map((s) => ({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
       properties: { id: s.id, name: s.name, group: s.group, altitudeKm: s.altitudeKm },
@@ -240,11 +243,29 @@ function refreshSatellites(): void {
   src?.setData(satGeojson())
 }
 
-function inMapView(lon: number, lat: number): boolean {
-  if (!layersReady) return false
-  if (!Number.isFinite(lon) || !Number.isFinite(lat)) return false
-  if (!inFranceZone(lon, lat)) return false
-  return map.getBounds().contains([lon, lat])
+function scheduleStats(): void {
+  if (statsRaf) return
+  statsRaf = requestAnimationFrame(() => {
+    statsRaf = 0
+    updateStats()
+  })
+}
+
+function scheduleStatsDebounced(): void {
+  if (statsDebounceTimer !== undefined) clearTimeout(statsDebounceTimer)
+  statsDebounceTimer = setTimeout(() => {
+    statsDebounceTimer = undefined
+    scheduleStats()
+  }, 120)
+}
+
+function scheduleVehicleLayerRefresh(): void {
+  if (vehicleRefreshRaf) return
+  vehicleRefreshRaf = requestAnimationFrame(() => {
+    vehicleRefreshRaf = 0
+    refreshSources()
+    scheduleStats()
+  })
 }
 
 function updateSourceNote(): void {
@@ -260,43 +281,60 @@ function updateSourceNote(): void {
 
 function updateStats(): void {
   const counts: Record<VehicleType, number> = { plane: 0, train: 0, boat: 0, bus: 0 }
+  let inViewCount = 0
+  let co2Total = 0
+  const bounds = layersReady ? map.getBounds() : null
+
   for (const v of vehicles) {
-    if (inFranceZone(v.lon, v.lat)) counts[v.type]++
+    if (!inFranceZone(v.lon, v.lat)) continue
+    counts[v.type]++
+    if (!bounds || !activeLayers.has(v.type)) continue
+    if (!bounds.contains([v.lon, v.lat])) continue
+    inViewCount++
+    co2Total += co2PerHourKg(v, factors)
   }
+
   for (const type of ALL_TYPES) {
     const el = document.getElementById(`count-${type}`)
     if (el) el.textContent = String(counts[type])
   }
   const satEl = document.getElementById('count-satellite')
-  if (satEl) {
-    const satN = satellitesOn ? satellites.filter((s) => inFranceZone(s.lon, s.lat)).length : 0
-    satEl.textContent = String(satN)
-  }
+  if (satEl) satEl.textContent = String(satellitesOn ? satellites.length : 0)
   const roadEl = document.getElementById('count-road')
   if (roadEl) roadEl.textContent = String(roadOn ? roadSegmentCount : 0)
 
-  const inView = vehicles.filter((v) => activeLayers.has(v.type) && inMapView(v.lon, v.lat))
-  const satInView = satellitesOn ? satellites.filter((s) => inMapView(s.lon, s.lat)).length : 0
-  const obj = document.getElementById('obj-count')
-  if (obj) {
-    obj.textContent = `${(inView.length + satInView).toLocaleString('en-US')} objects in view`
+  if (satellitesOn && bounds) {
+    for (const s of satellites) {
+      if (bounds.contains([s.lon, s.lat])) inViewCount++
+    }
   }
 
-  const total = inView.reduce((sum, v) => sum + co2PerHourKg(v, factors), 0)
+  const obj = document.getElementById('obj-count')
+  if (obj) obj.textContent = `${inViewCount.toLocaleString('en-US')} objects in view`
+
   const totalEl = document.getElementById('co2-total')
-  if (totalEl) totalEl.textContent = Math.round(total).toLocaleString('en-US')
+  if (totalEl) totalEl.textContent = Math.round(co2Total).toLocaleString('en-US')
 }
 
-function tickSats(): void {
+function resetSatTickInterval(): void {
+  if (satTickTimer !== undefined) clearInterval(satTickTimer)
+  const ms = satrecs.length > 2500 ? 2500 : 1000
+  satTickTimer = setInterval(() => void tickSats(), ms)
+}
+
+async function tickSats(): Promise<void> {
   if (!satellitesOn || satrecs.length === 0) {
     satellites = []
     refreshSatellites()
-    updateStats()
+    scheduleStats()
     return
   }
-  satellites = propagateAll(satrecs)
+  const gen = ++satTickGen
+  const result = await propagateAllAsync(satrecs, { keep: inFranceZone })
+  if (gen !== satTickGen) return
+  satellites = result
   refreshSatellites()
-  updateStats()
+  scheduleStats()
 }
 
 const tleCache = new Map<SatelliteGroup, CachedSatrec[]>()
@@ -317,7 +355,7 @@ async function loadSatGroup(group: SatelliteGroup): Promise<void> {
 async function syncSatrecs(): Promise<void> {
   if (!satellitesOn) {
     satrecs = []
-    tickSats()
+    void tickSats()
     return
   }
   const wanted = [...satGroups]
@@ -331,7 +369,8 @@ async function syncSatrecs(): Promise<void> {
     }),
   )
   satrecs = wanted.flatMap((g) => tleCache.get(g) ?? [])
-  tickSats()
+  resetSatTickInterval()
+  void tickSats()
 }
 
 async function loadRoads(): Promise<void> {
@@ -481,9 +520,9 @@ map.on('load', () => {
   setRoadVisibility(roadOn)
   void franceZoneReady.then(() => {
     refreshSources()
-    updateStats()
+    scheduleStats()
     updateSourceNote()
-    void syncSatrecs()
+    requestAnimationFrame(() => void syncSatrecs())
     if (roadOn) void loadRoads()
   })
 })
@@ -496,9 +535,9 @@ document.querySelectorAll('.layer-btn').forEach((btn) => {
       btn.classList.toggle('active', satellitesOn)
       document.getElementById('sat-filters')?.classList.toggle('open', satellitesOn)
       setSatVisibility(satellitesOn)
-      void syncSatrecs()
+      requestAnimationFrame(() => void syncSatrecs())
       updateSourceNote()
-      updateStats()
+      scheduleStats()
       return
     }
     if (layer === 'road') {
@@ -507,7 +546,7 @@ document.querySelectorAll('.layer-btn').forEach((btn) => {
       setRoadVisibility(roadOn)
       if (roadOn) void loadRoads()
       updateSourceNote()
-      updateStats()
+      scheduleStats()
       return
     }
     const type = layer as VehicleType
@@ -520,7 +559,7 @@ document.querySelectorAll('.layer-btn').forEach((btn) => {
       btn.classList.add('active')
       setLayerVisibility(type, true)
     }
-    updateStats()
+    scheduleStats()
   })
 })
 
@@ -536,7 +575,7 @@ document.querySelectorAll('.sat-chip').forEach((chip) => {
       satGroups.add(group)
       chip.classList.add('active')
     }
-    void syncSatrecs()
+    requestAnimationFrame(() => void syncSatrecs())
   })
 })
 
@@ -545,10 +584,7 @@ const liveDot = document.getElementById('live-dot')!
 connectVehiclesWs((next) => {
   vehicles = next
   liveDot.classList.remove('off')
-  void franceZoneReady.then(() => {
-    refreshSources()
-    updateStats()
-  })
+  void franceZoneReady.then(() => scheduleVehicleLayerRefresh())
 })
 
 void fetchCo2Factors()
@@ -556,16 +592,15 @@ void fetchCo2Factors()
     factors = f
     factorSource = f.source
     updateSourceNote()
-    updateStats()
+    scheduleStats()
   })
   .catch(() => {
     /* keep fallback */
   })
 
-map.on('moveend', updateStats)
-map.on('zoomend', updateStats)
-setInterval(updateStats, 3000)
-setInterval(tickSats, 1000)
+map.on('moveend', scheduleStatsDebounced)
+map.on('zoomend', scheduleStatsDebounced)
+resetSatTickInterval()
 setInterval(() => {
   if (roadOn) void loadRoads()
 }, 6 * 60_000)

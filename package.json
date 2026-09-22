@@ -6,6 +6,10 @@
     "dev": "concurrently -n backend,frontend -c cyan,magenta \"npm run dev -w backend\" \"npm run dev -w frontend\"",
     "dev:frontend": "npm run dev -w frontend",
     "dev:backend": "npm run dev -w backend",
+    "build": "npm run build -w backend && npm run build -w frontend",
+    "build:frontend": "npm run build -w frontend",
+    "build:backend": "npm run build -w backend",
+    "preview": "npm run preview -w frontend",
     "refresh:co2-factors": "npm run refresh:co2-factors -w backend"
   },
   "workspaces": [

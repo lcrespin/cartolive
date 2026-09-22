@@ -27,24 +27,63 @@ export function buildSatrecs(group: SatelliteGroup, records: TleRecord[]): Cache
   return out
 }
 
-export function propagateAll(items: CachedSatrec[], at = new Date()): Satellite[] {
+function propagateOne(
+  item: CachedSatrec,
+  gmst: number,
+  at: Date,
+  keep?: (lon: number, lat: number) => boolean,
+): Satellite | null {
+  const pv = satellite.propagate(item.satrec, at)
+  const position = pv?.position
+  if (!position || typeof position === 'boolean') return null
+  const geo = satellite.eciToGeodetic(position, gmst)
+  const lat = satellite.degreesLat(geo.latitude)
+  const lon = satellite.degreesLong(geo.longitude)
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
+  if (keep && !keep(lon, lat)) return null
+  return {
+    id: item.id,
+    name: item.name,
+    group: item.group,
+    lon,
+    lat,
+    altitudeKm: geo.height,
+  }
+}
+
+export function propagateAll(
+  items: CachedSatrec[],
+  at = new Date(),
+  keep?: (lon: number, lat: number) => boolean,
+): Satellite[] {
   const gmst = satellite.gstime(at)
   const out: Satellite[] = []
   for (const item of items) {
-    const pv = satellite.propagate(item.satrec, at)
-    if (!pv?.position) continue
-    const geo = satellite.eciToGeodetic(pv.position, gmst)
-    const lat = satellite.degreesLat(geo.latitude)
-    const lon = satellite.degreesLong(geo.longitude)
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue
-    out.push({
-      id: item.id,
-      name: item.name,
-      group: item.group,
-      lon,
-      lat,
-      altitudeKm: geo.height,
-    })
+    const s = propagateOne(item, gmst, at, keep)
+    if (s) out.push(s)
+  }
+  return out
+}
+
+export async function propagateAllAsync(
+  items: CachedSatrec[],
+  options?: {
+    at?: Date
+    keep?: (lon: number, lat: number) => boolean
+    chunk?: number
+  },
+): Promise<Satellite[]> {
+  const at = options?.at ?? new Date()
+  const chunk = options?.chunk ?? 400
+  const keep = options?.keep
+  const gmst = satellite.gstime(at)
+  const out: Satellite[] = []
+  for (let i = 0; i < items.length; i++) {
+    const s = propagateOne(items[i], gmst, at, keep)
+    if (s) out.push(s)
+    if (i > 0 && i % chunk === 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    }
   }
   return out
 }
