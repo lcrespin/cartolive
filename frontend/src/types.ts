@@ -1,4 +1,14 @@
-export type VehicleType = 'plane' | 'train' | 'boat' | 'bus'
+export type VehicleType = 'plane' | 'train' | 'boat' | 'bus' | 'metro'
+
+export interface VehicleMotionLeg {
+  fromLon: number
+  fromLat: number
+  toLon: number
+  toLat: number
+  startAt: string
+  endAt: string
+  toLabel?: string
+}
 
 export interface Vehicle {
   id: string
@@ -12,6 +22,8 @@ export interface Vehicle {
   distanceKm?: number
   speedKmh?: number
   passengers?: number
+  altitudeM?: number
+  motion?: VehicleMotionLeg
   updatedAt: string
 }
 
@@ -28,17 +40,19 @@ export const TYPE_LABEL: Record<VehicleType, string> = {
   plane: 'Plane',
   train: 'Train',
   boat: 'Boat',
-  bus: 'Bus / metro',
+  bus: 'Buses',
+  metro: 'Metro',
 }
 
-export const LAYER_COLORS: Record<VehicleType, string> = {
-  plane: '#3ed9c4',
-  train: '#6fb8f0',
-  boat: '#c792ea',
-  bus: '#f2a65a',
-}
+export { LAYER_COLORS, SATELLITE_COLOR, VEHICLE_COLORS } from './colors'
 
-export const ALL_TYPES: VehicleType[] = ['plane', 'train', 'boat', 'bus']
+/** Bottom → top paint order on the map */
+export const LAYER_STACK_ORDER: VehicleType[] = ['boat', 'metro', 'bus', 'train', 'plane']
+
+/** Layer panel order (top to bottom in UI) */
+export const UI_LAYER_TYPES: VehicleType[] = ['plane', 'train', 'bus', 'metro', 'boat']
+
+export const ALL_TYPES: VehicleType[] = UI_LAYER_TYPES
 
 export const SATELLITE_GROUPS = ['stations', 'starlink', 'gps-ops', 'weather'] as const
 export type SatelliteGroup = (typeof SATELLITE_GROUPS)[number]
@@ -72,7 +86,7 @@ export interface RoadCollection {
   features: Array<{
     type: 'Feature'
     geometry: { type: 'LineString'; coordinates: [number, number][] }
-    properties: { status: RoadStatus; speedKmh?: number; label?: string }
+    properties: { status: RoadStatus; speedKmh?: number; label?: string; statusDetail?: string }
   }>
   updatedAt: string
   source: string

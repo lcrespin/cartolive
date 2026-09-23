@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { hub } from '../hub/store.js'
 import { fetchGtfsRtBuffer, parseTripUpdates, parseVehiclePositions } from './gtfsRt.js'
 import type { Vehicle } from '../types/vehicle.js'
+import { idfmTransitType, idfmVehicleCount, splitIdfmVehicles, type RouteIndex } from './idfmMode.js'
 import { settings } from '../config/settings.js'
 
 const POLL_MS = 30_000
@@ -21,7 +22,8 @@ const STOPS_CACHE = path.join(CACHE_DIR, 'idfm-stops.json')
 const ROUTES_CACHE = path.join(CACHE_DIR, 'idfm-routes.json')
 
 type StopIndex = Record<string, { lat: number; lon: number; name: string }>
-type RouteIndex = Record<string, { shortName: string; mode?: string }>
+
+let routeIndex: RouteIndex = {}
 
 async function ensureIndexes(): Promise<{ stops: StopIndex; routes: RouteIndex }> {
   try {
@@ -128,14 +130,20 @@ function busLabel(routeId: string | undefined, fallback: string, routes: RouteIn
 
 async function pollVp(): Promise<void> {
   if (!VP_URL) return
+  if (!Object.keys(routeIndex).length) {
+    const { routes } = await ensureIndexes()
+    routeIndex = routes
+  }
   const buffer = await fetchGtfsRtBuffer(VP_URL)
-  const vehicles = parseVehiclePositions(buffer, 'bus', 'idfm-')
-  hub.replaceByPrefix('bus', 'idfm-', vehicles)
+  const raw = parseVehiclePositions(buffer, 'bus', 'idfm-')
+  const { metro, bus } = splitIdfmVehicles(raw, routeIndex)
+  hub.replaceByPrefix('metro', 'idfm-', metro)
+  hub.replaceByPrefix('bus', 'idfm-', bus)
   hub.setFeedHealth('idfm', {
     ok: true,
     lastSuccessAt: new Date().toISOString(),
     lastError: null,
-    vehicleCount: vehicles.length,
+    vehicleCount: idfmVehicleCount(metro, bus),
   })
 }
 
@@ -155,7 +163,7 @@ async function pollTripUpdates(stops: StopIndex, routes: RouteIndex): Promise<vo
     seen.add(id)
     vehicles.push({
       id,
-      type: 'bus',
+      type: idfmTransitType(u.routeId, routes),
       label: busLabel(u.routeId, u.label, routes),
       lon: stop.lon,
       lat: stop.lat,
@@ -164,25 +172,37 @@ async function pollTripUpdates(stops: StopIndex, routes: RouteIndex): Promise<vo
     })
   }
 
-  hub.replaceByPrefix('bus', 'idfm-', vehicles)
+  const metro = vehicles.filter((v) => v.type === 'metro')
+  const bus = vehicles.filter((v) => v.type === 'bus')
+  hub.replaceByPrefix('metro', 'idfm-', metro)
+  hub.replaceByPrefix('bus', 'idfm-', bus)
   hub.setFeedHealth('idfm', {
     ok: true,
     lastSuccessAt: new Date().toISOString(),
     lastError: null,
-    vehicleCount: vehicles.length,
+    vehicleCount: idfmVehicleCount(metro, bus),
   })
 }
 
 export async function startIdfm(): Promise<void> {
   if (VP_URL) {
     console.log('[idfm] starting GTFS-RT vehicle positions')
+    void ensureIndexes()
+      .then(({ routes }) => {
+        routeIndex = routes
+      })
+      .catch((err) => console.warn('[idfm] route index preload', err))
     const run = async () => {
       try {
         await pollVp()
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[idfm]', msg)
-        hub.setFeedHealth('idfm', { ok: false, lastError: msg, vehicleCount: hub.countByType('bus') })
+        hub.setFeedHealth('idfm', {
+          ok: false,
+          lastError: msg,
+          vehicleCount: hub.countByType('bus') + hub.countByType('metro'),
+        })
       }
     }
     void run()
@@ -193,13 +213,18 @@ export async function startIdfm(): Promise<void> {
   console.log('[idfm] starting trip-updates → stop coordinates (approximate; no public VP feed)')
   try {
     const { stops, routes } = await ensureIndexes()
+    routeIndex = routes
     const run = async () => {
       try {
         await pollTripUpdates(stops, routes)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[idfm]', msg)
-        hub.setFeedHealth('idfm', { ok: false, lastError: msg, vehicleCount: hub.countByType('bus') })
+        hub.setFeedHealth('idfm', {
+          ok: false,
+          lastError: msg,
+          vehicleCount: hub.countByType('bus') + hub.countByType('metro'),
+        })
       }
     }
     void run()

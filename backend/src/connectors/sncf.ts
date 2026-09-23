@@ -1,5 +1,6 @@
 import { hub } from '../hub/store.js'
-import { fetchGtfsRtBuffer, parseTripUpdates, parseVehiclePositions } from './gtfsRt.js'
+import { fetchGtfsRtBuffer, parseVehiclePositions } from './gtfsRt.js'
+import { parseTrainTripUpdates } from './sncfTripMotion.js'
 import type { Vehicle } from '../types/vehicle.js'
 import { mkdir, readFile, writeFile, access, readdir } from 'node:fs/promises'
 import path from 'node:path'
@@ -113,23 +114,17 @@ async function poll(stops: StopIndex): Promise<void> {
     if (asVp.length > 0) {
       vehicles = asVp
     } else {
-      const updates = parseTripUpdates(buffer)
       const now = new Date().toISOString()
-      vehicles = []
-      for (const u of updates) {
-        if (!u.stopId) continue
-        const stop = stops[u.stopId]
-        if (!stop) continue
-        vehicles.push({
-          id: u.id,
-          type: 'train',
-          label: u.label,
-          lon: stop.lon,
-          lat: stop.lat,
-          to: stop.name,
-          updatedAt: now,
-        })
-      }
+      vehicles = parseTrainTripUpdates(buffer, stops).map((t) => ({
+        id: t.id,
+        type: 'train' as const,
+        label: t.label,
+        lon: t.lon,
+        lat: t.lat,
+        to: t.to,
+        motion: t.motion,
+        updatedAt: now,
+      }))
     }
     hub.replaceType('train', vehicles)
     hub.setFeedHealth('sncf', {

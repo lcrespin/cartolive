@@ -10,7 +10,12 @@ export type RoadStatus = 'fluid' | 'heavy' | 'congested'
 export interface RoadFeature {
   type: 'Feature'
   geometry: { type: 'LineString'; coordinates: [number, number][] }
-  properties: { status: RoadStatus; speedKmh?: number; label?: string }
+  properties: {
+    status: RoadStatus
+    speedKmh?: number
+    label?: string
+    statusDetail: string
+  }
 }
 
 export interface RoadCollection {
@@ -72,6 +77,20 @@ function statusFromSpeed(kmh: number | undefined): RoadStatus {
   if (kmh >= 70) return 'fluid'
   if (kmh >= 40) return 'heavy'
   return 'congested'
+}
+
+function statusDetail(speed: number | undefined, status: RoadStatus): string {
+  if (speed == null) {
+    return 'No speed in feed — shown as moderate (orange). Colors use fixed speed bands, not comparison to usual traffic.'
+  }
+  const rounded = Math.round(speed)
+  const band =
+    status === 'fluid'
+      ? '≥ 70 km/h (fluid band)'
+      : status === 'heavy'
+        ? '40–69 km/h (moderate band)'
+        : '< 40 km/h (slow band)'
+  return `Measured ${rounded} km/h — ${band}. Not relative to typical conditions on this axis.`
 }
 
 function isLambertX(n: number): boolean {
@@ -195,13 +214,15 @@ async function poll(): Promise<void> {
     for (const [id, speed] of speeds) {
       const site = byId.get(id)
       if (!site) continue
+      const status = statusFromSpeed(speed)
       features.push({
         type: 'Feature',
         geometry: { type: 'LineString', coordinates: [site.start, site.end] },
         properties: {
-          status: statusFromSpeed(speed),
+          status,
           speedKmh: speed,
           label: site.axis,
+          statusDetail: statusDetail(speed, status),
         },
       })
     }

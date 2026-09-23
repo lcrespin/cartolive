@@ -1,4 +1,6 @@
-export type VehicleType = 'plane' | 'train' | 'boat' | 'bus'
+import type { VehicleMotionLeg } from './motion.js'
+
+export type VehicleType = 'plane' | 'train' | 'boat' | 'bus' | 'metro'
 
 export interface Vehicle {
   id: string
@@ -12,8 +14,14 @@ export interface Vehicle {
   distanceKm?: number
   speedKmh?: number
   passengers?: number
+  /** Barometric or geometric altitude (m), mainly planes */
+  altitudeM?: number
+  /** Interpolate between stops when GTFS-RT has no live GPS */
+  motion?: VehicleMotionLeg
   updatedAt: string
 }
+
+export type { VehicleMotionLeg } from './motion.js'
 
 export interface Co2Factors {
   plane: number

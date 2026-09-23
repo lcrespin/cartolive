@@ -47,6 +47,8 @@ function mapStates(states: unknown[][]): Vehicle[] {
     const onGround = Boolean(s[8])
     const velocity = s[9] as number | null
     const heading = s[10] as number | null
+    const baroAlt = s[7] as number | null
+    const geoAlt = s[13] as number | null
     const origin = s[2] as string | null
     if (lon == null || lat == null || !icao24) continue
     if (onGround) continue
@@ -59,6 +61,7 @@ function mapStates(states: unknown[][]): Vehicle[] {
       heading: heading ?? undefined,
       from: origin ?? undefined,
       speedKmh: velocity != null ? velocity * 3.6 : undefined,
+      altitudeM: geoAlt ?? baroAlt ?? undefined,
       updatedAt: now,
     })
   }

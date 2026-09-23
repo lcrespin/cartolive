@@ -11,11 +11,11 @@
   --accent-dim: #3ed9c455;
   --warn: #f2a65a;
   --warn-dim: #f2a65a33;
-  --train: #6fb8f0;
-  --plane: #3ed9c4;
-  --boat: #c792ea;
-  --bus: #f2a65a;
-  --sat: #d4e157;
+  --train: #5FBF6E;
+  --plane: #D5DAE1;
+  --boat: #4A9EDB;
+  --bus: #D97757;
+  --sat: #F0E15A;
   --road: #8b95a5;
 }
 
@@ -74,6 +74,10 @@ html, body {
 }
 
 .live-pill {
+  position: absolute;
+  bottom: 24px;
+  left: 24px;
+  z-index: 10;
   pointer-events: auto;
   display: flex;
   align-items: center;
@@ -182,31 +186,62 @@ html, body {
 
 .sat-chip.active {
   color: var(--text);
-  border-color: #d4e15766;
-  background: #d4e15718;
+  border-color: color-mix(in srgb, var(--sat) 40%, transparent);
+  background: color-mix(in srgb, var(--sat) 9%, transparent);
 }
 
 .sat-chip.loading {
   opacity: 0.45;
 }
 
+.header .co2-panel {
+  pointer-events: auto;
+  flex-shrink: 0;
+}
+
 .co2-panel {
-  position: absolute;
-  bottom: 24px;
-  left: 24px;
-  z-index: 10;
-  background: var(--bg-panel);
+  --co2-intensity: 0;
+  background: color-mix(in srgb, var(--warn) calc(var(--co2-intensity) * 11%), var(--bg-panel));
   backdrop-filter: blur(12px);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--warn) calc(var(--co2-intensity) * 62%), var(--border));
   border-radius: 14px;
   padding: 16px 18px;
   width: 260px;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--warn) calc(var(--co2-intensity) * 22%), transparent),
+    0 10px 36px color-mix(in srgb, var(--warn) calc(var(--co2-intensity) * 20%), transparent);
+  transition:
+    border-color 0.45s ease,
+    background 0.45s ease,
+    box-shadow 0.45s ease;
+}
+
+.co2-panel--active .co2-label {
+  color: color-mix(in srgb, var(--warn) calc(var(--co2-intensity) * 55%), var(--text-faint));
+}
+
+.co2-panel--alert {
+  animation: co2-panel-glow 2.8s ease-in-out infinite;
+}
+
+@keyframes co2-panel-glow {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--warn) 45%, transparent),
+      0 10px 36px color-mix(in srgb, var(--warn) 28%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--warn) 55%, transparent),
+      0 12px 44px color-mix(in srgb, var(--warn) 38%, transparent);
+  }
 }
 
 .co2-label {
   font-size: 11px;
   color: var(--text-faint);
   margin-bottom: 6px;
+  transition: color 0.45s ease;
 }
 
 .co2-value {
@@ -214,23 +249,79 @@ html, body {
   font-size: 30px;
   font-weight: 600;
   line-height: 1;
-  color: var(--text);
   display: flex;
   align-items: baseline;
   gap: 6px;
 }
 
-.co2-value .unit {
-  font-size: 14px;
-  color: var(--text-dim);
-  font-weight: 500;
+.co2-value #co2-total {
+  color: color-mix(in srgb, var(--warn) calc(var(--co2-intensity) * 100%), var(--text));
+  transition: color 0.45s ease;
+  font-variant-numeric: tabular-nums;
 }
 
-.source-note {
+.co2-panel--active .co2-value #co2-total {
+  text-shadow: 0 0 28px color-mix(in srgb, var(--warn) calc(var(--co2-intensity) * 35%), transparent);
+}
+
+.co2-value .unit {
+  font-size: 14px;
+  color: color-mix(in srgb, var(--warn) calc(var(--co2-intensity) * 40%), var(--text-dim));
+  font-weight: 500;
+  transition: color 0.45s ease;
+}
+
+.map-footer {
   position: absolute;
   bottom: 24px;
   right: 24px;
   z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.map-footer > * {
+  pointer-events: auto;
+}
+
+.zoom-panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.zoom-btn {
+  width: 38px;
+  height: 38px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.zoom-btn:hover {
+  background: #ffffff08;
+  color: var(--text);
+}
+
+.zoom-btn + .zoom-btn {
+  border-top: 1px solid var(--border);
+}
+
+.source-note {
   font-size: 10.5px;
   color: var(--text-faint);
   background: var(--bg-panel);
@@ -243,6 +334,13 @@ html, body {
 }
 
 .source-note strong { color: var(--text-dim); font-weight: 500; }
+
+.source-note a {
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.source-note a:hover { text-decoration: underline; }
 
 .maplibregl-popup-content {
   background: var(--bg-panel-solid) !important;
@@ -340,6 +438,9 @@ html, body {
 @media (max-width: 640px) {
   .brand-tag { display: none; }
   .layers { width: 160px; left: 12px; top: 64px; }
-  .co2-panel { left: 12px; bottom: 12px; width: calc(100% - 24px); max-width: 280px; }
-  .source-note { display: none; }
+  .header .co2-panel { width: min(280px, calc(100vw - 140px)); padding: 12px 14px; }
+  .co2-value { font-size: 24px; }
+  .live-pill { left: 12px; bottom: 12px; }
+  .map-footer { right: 12px; bottom: 12px; }
+  .source-note { max-width: min(280px, calc(100vw - 24px)); }
 }
