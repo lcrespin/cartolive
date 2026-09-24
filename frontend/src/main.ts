@@ -7,7 +7,12 @@ import { co2PerHourKg, co2TripPerPassengerKg, co2ViewportIntensity } from './co2
 import { initFranceZone, inFranceZone } from './franceZone'
 import { buildSatrecs, propagateAllAsync, type CachedSatrec } from './satellites'
 import { registerVehicleIcons, SATELLITE_ICON_IMAGE, VEHICLE_ICON_IMAGE } from './vehicleIcons'
-import { trainDisplayState, trainInFrance, trainsNeedMotionAnimation } from './trainMotion'
+import {
+  trainDisplayState,
+  trainInFrance,
+  trainPopupSpeedKmh,
+  trainsNeedMotionAnimation,
+} from './trainMotion'
 import {
   ALL_TYPES,
   LAYER_COLORS,
@@ -36,7 +41,7 @@ app.innerHTML = `
     </div>
     <div class="co2-panel" id="co2-panel">
       <div class="co2-label">Cumulative emissions — objects in view</div>
-      <div class="co2-value"><span id="co2-total">0</span><span class="unit">kg CO₂e / h</span></div>
+      <div class="co2-value"><span id="co2-total">0</span><span class="unit">t CO₂e / h</span></div>
     </div>
   </div>
   <div class="layers" id="layers">
@@ -255,7 +260,15 @@ function buildPopupHTML(v: Vehicle): string {
       `<div class="pop-row"><span class="k">Distance</span><span class="v">${Math.round(v.distanceKm)} km</span></div>`,
     )
   }
-  if (v.speedKmh != null) {
+  if (v.type === 'train') {
+    const speed = trainPopupSpeedKmh(v)
+    if (speed) {
+      const label = speed.estimated ? 'Speed (est.)' : 'Speed'
+      rows.push(
+        `<div class="pop-row"><span class="k">${label}</span><span class="v">${Math.round(speed.kmh)} km/h</span></div>`,
+      )
+    }
+  } else if (v.speedKmh != null) {
     rows.push(
       `<div class="pop-row"><span class="k">Speed</span><span class="v">${Math.round(v.speedKmh)} km/h</span></div>`,
     )
@@ -537,7 +550,13 @@ function updateStats(): void {
   if (obj) obj.textContent = `${inViewCount.toLocaleString('en-US')} objects in view`
 
   const totalEl = document.getElementById('co2-total')
-  if (totalEl) totalEl.textContent = Math.round(co2Total).toLocaleString('en-US')
+  if (totalEl) {
+    const tons = co2Total / 1000
+    totalEl.textContent = tons.toLocaleString('en-US', {
+      maximumFractionDigits: tons >= 10 ? 1 : 2,
+      minimumFractionDigits: 0,
+    })
+  }
   updateCo2PanelVisual(co2Total)
 }
 

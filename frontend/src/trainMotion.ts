@@ -36,6 +36,40 @@ export function trainsNeedMotionAnimation(vehicles: Vehicle[]): boolean {
   return vehicles.some((v) => v.type === 'train' && v.motion != null)
 }
 
+function haversineKm(lon1: number, lat1: number, lon2: number, lat2: number): number {
+  const R = 6371
+  const φ1 = (lat1 * Math.PI) / 180
+  const φ2 = (lat2 * Math.PI) / 180
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180
+  const a =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2)
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+/** Average speed along the current GTFS-RT leg (chord distance / scheduled interval). */
+export function trainLegSpeedKmh(motion: VehicleMotionLeg): number | null {
+  const startMs = new Date(motion.startAt).getTime()
+  const endMs = new Date(motion.endAt).getTime()
+  const hours = (endMs - startMs) / 3_600_000
+  if (!Number.isFinite(hours) || hours <= 0) return null
+  const km = haversineKm(motion.fromLon, motion.fromLat, motion.toLon, motion.toLat)
+  if (!Number.isFinite(km) || km <= 0) return null
+  return km / hours
+}
+
+export function trainPopupSpeedKmh(v: Vehicle): { kmh: number; estimated: boolean } | null {
+  if (v.speedKmh != null && Number.isFinite(v.speedKmh)) {
+    return { kmh: v.speedKmh, estimated: false }
+  }
+  if (v.motion) {
+    const kmh = trainLegSpeedKmh(v.motion)
+    if (kmh != null) return { kmh, estimated: true }
+  }
+  return null
+}
+
 export function trainInFrance(
   v: Vehicle,
   inZone: (lon: number, lat: number) => boolean,
