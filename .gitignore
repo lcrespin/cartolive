@@ -6,3 +6,4 @@ dist/
 frontend/dist/
 backend/dist/
 backend/.cache/
+plan/
